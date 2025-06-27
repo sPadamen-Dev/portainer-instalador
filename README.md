@@ -1,50 +1,39 @@
-🛠️ Instalador Automático do Portainer com Traefik e SSL
-Este projeto automatiza a instalação completa de um ambiente com:
+# 🚀 Portainer Infra Installer
 
-Docker + Docker Compose
+Instalador automatizado para Portainer com suporte a Traefik, HTTPS com Let's Encrypt, e integração com subdomínios personalizados via Docker.
 
-Portainer com SSL via Let's Encrypt
+Ideal para VPSs que desejam gerenciar containers com segurança, escalabilidade e painel web intuitivo.
 
-Proxy reverso usando Traefik (opcional)
+---
 
-Instalação interativa via CLI
+## ✅ Pré-requisitos
 
-Configuração baseada em subdomínios para múltiplos serviços
+- VPS com Ubuntu/Debian (ou compatível)
+- Acesso root ou `sudo`
+- Domínio com DNS configurável
+- Portas 80 e 443 liberadas no firewall
 
-✅ Pré-requisitos
-Uma VPS com Linux (Ubuntu/Debian recomendado)
+---
 
-Domínio com DNS gerenciável (Cloudflare, Registro.br, etc)
+## 🌐 Configuração DNS
 
-A porta 80 e 443 liberadas
+Crie os seguintes registros **tipo A** apontando para o IP da sua VPS:
 
-Docker não precisa estar instalado (o script cuida disso)
+| Subdomínio         | Tipo | Valor              |
+|--------------------|------|--------------------|
+| `portianer` e `www.portainer` | A    | `SEU.IP.VPS`       | 
+| `traefik` e `www.traefik`   | A    | `SEU.IP.VPS`       |
+| `edge` e `www.edge`      | A    | `SEU.IP.VPS`       |
 
-🌐 Configuração DNS
-Crie os seguintes registros tipo A, todos apontando para o IP público da sua VPS:
+> ⚠️ No Cloudflare, mantenha o modo **"DNS Only"** (ícone de nuvem **cinza**) para funcionar com Let's Encrypt.
 
-Nome DNS	   Tipo 	Valor (Exemplo)
+---
 
-portainer
+## 🚀 Instalação Rápida
 
-www.portainer	A	   192.0.2.10
-
-
-treefik
-
-www.traefik 	A 	 192.0.2.10
-
-
-
-edge
-
-www.edge      A	  192.0.2.10
-
-
-🚀 Instalação
-
-Execute este comando na sua VPS:
+Execute o comando abaixo na sua VPS:
 
 ```bash
-sudo apt update && sudo apt install -y git && git clone https://github.com/sPadamen-Dev/portainer-instalador.git && cd portainer-instalador && sudo chmod +x install.sh && ./install.sh
-
+sudo apt update && sudo apt install -y git && \
+git clone https://github.com/sPadamen-Dev/portainer-instalador.git && \
+cd portainer-instalador && sudo chmod +x install.sh && ./install.sh
