@@ -24,12 +24,17 @@ Docker não precisa estar instalado (o script cuida disso)
 Crie os seguintes registros tipo A, todos apontando para o IP público da sua VPS:
 
 Nome DNS	   Tipo 	Valor (Exemplo)
+
 portainer
 www.portainer	A	   192.0.2.10
+
 ---------------------------------
+
 treefik
 www.traefik 	A 	 192.0.2.10
+
 --------------------------------
+
 edge
 www.edge      A	  192.0.2.10
 
