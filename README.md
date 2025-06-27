@@ -26,16 +26,18 @@ Crie os seguintes registros tipo A, todos apontando para o IP público da sua VP
 Nome DNS	   Tipo 	Valor (Exemplo)
 
 portainer
+
 www.portainer	A	   192.0.2.10
 
----------------------------------
 
 treefik
+
 www.traefik 	A 	 192.0.2.10
 
---------------------------------
+
 
 edge
+
 www.edge      A	  192.0.2.10
 
 
