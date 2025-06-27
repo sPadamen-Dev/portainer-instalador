@@ -1,4 +1,4 @@
-# 🚀 Portainer Infra Installer
+# 🚀 Portainer Instalador
 
 Instalador automatizado para Portainer com suporte a Traefik, HTTPS com Let's Encrypt, e integração com subdomínios personalizados via Docker.
 
