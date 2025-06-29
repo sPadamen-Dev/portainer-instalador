@@ -1,61 +1,69 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# install-portainer-traefik.sh
+# Instalação automatizada do Portainer CE + Traefik (com domínio opcional)
 
-set -e
+set -euo pipefail
 
-# Função para exibir banner
-function banner() {
-  clear
-  figlet -f slant "sPadamen-Dev" | lolcat
-  echo "======================================================"
-  echo " 🚀 Instalador CLI Automático do sPadamen-Dev"
-  echo "======================================================"
-  echo
-}
+# ===== VARIÁVEIS PADRÃO =====
+PORTAINER_VOLUME="portainer_data"
+TRAEFIK_DIR="/opt/traefik"
+NETWORK_NAME="traefik"
+TRAEFIK_CONTAINER="traefik"
+PORTAINER_CONTAINER="portainer"
+UI_PORT=9443
+EDGE_PORT=8000
+LEGACY_PORT=9000
 
-# Instala docker e dependências
-function install_dependencies() {
-  echo "Atualizando sistema..."
-  sudo apt update && sudo apt upgrade -y
-  echo "Instalando Docker, Docker Compose, figlet, lolcat, jq, curl..."
-  sudo apt install -y docker.io docker-compose figlet lolcat jq curl
+# ===== COLETAR CONFIG VIA MENU =====
+echo "🌐 Configuração Traefik:"
+read -rp "👉 Deseja usar domínio personalizado (s/n)? " use_domain
 
-  sudo systemctl enable docker
-  sudo systemctl start docker
-}
+if [[ "$use_domain" =~ ^[Ss]$ ]]; then
+  read -rp "🔤 Digite o domínio (ex: portainer.seudominio.com): " DOMAIN
+  read -rp "📧 Digite o e-mail para Let's Encrypt: " EMAIL
+  USE_TLS=true
+else
+  DOMAIN="localhost"
+  EMAIL="dev@localhost"
+  USE_TLS=false
+fi
 
-# Checa se domínio aponta para este servidor
-function check_domain_dns() {
-  local DOMAIN=$1
-  echo "🔍 Checando DNS do domínio $DOMAIN..."
+echo ""
+echo "📦 Instalação para domínio: $DOMAIN"
+echo "📨 E-mail Let's Encrypt: $EMAIL"
+echo ""
 
-  SERVER_IP=$(curl -s https://api.ipify.org)
-  DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n1)
+# ===== INSTALAR DOCKER (se necessário) =====
+if ! command -v docker &>/dev/null; then
+  echo "➡️ Instalando Docker..."
+  apt-get update
+  apt-get install -y ca-certificates curl gnupg lsb-release
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg | \
+    gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+    https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") \
+    $(lsb_release -cs) stable" | \
+    tee /etc/apt/sources.list.d/docker.list > /dev/null
+  apt-get update
+  apt-get install -y docker-ce docker-ce-cli containerd.io
+  echo "✔️ Docker instalado com sucesso."
+else
+  echo "✔️ Docker já está instalado."
+fi
 
-  echo "➡ IP do servidor: $SERVER_IP"
-  echo "➡ IP do domínio: $DOMAIN_IP"
+# ===== CRIAR REDE DOCKER =====
+docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || docker network create "$NETWORK_NAME"
 
-  if [[ "$SERVER_IP" == "$DOMAIN_IP" ]]; then
-    echo "✅ O domínio está apontando corretamente para este servidor."
-  else
-    echo "⚠️ O domínio NÃO está apontando para este servidor."
-    echo "   Verifique o apontamento DNS (A record) antes de prosseguir."
-    read -p "Deseja continuar mesmo assim? (s/N): " CONT
-    if [[ "$CONT" != "s" && "$CONT" != "S" ]]; then
-      echo "Abortando..."
-      exit 1
-    fi
-  fi
-}
+# ===== INSTALAR TRAEFIK =====
+echo "⚙️ Configurando Traefik em: $TRAEFIK_DIR"
+mkdir -p "$TRAEFIK_DIR/letsencrypt"
+touch "$TRAEFIK_DIR/letsencrypt/acme.json"
+chmod 600 "$TRAEFIK_DIR/letsencrypt/acme.json"
 
-# Instala o Traefik
-function install_traefik() {
-  read -p "Informe o e-mail para Let's Encrypt: " LETSENCRYPT_EMAIL
-
-  mkdir -p ~/sPadamen-Dev
-  cd ~/sPadamen-Dev
-
-  echo "Criando traefik.yml..."
-  cat <<EOF > traefik.yml
+cat > "$TRAEFIK_DIR/traefik.yml" <<EOF
 entryPoints:
   web:
     address: ":80"
@@ -66,125 +74,71 @@ providers:
   docker:
     exposedByDefault: false
 
+api:
+  dashboard: true
+EOF
+
+if [[ "$USE_TLS" == true ]]; then
+cat >> "$TRAEFIK_DIR/traefik.yml" <<EOF
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: $LETSENCRYPT_EMAIL
+      email: $EMAIL
       storage: /letsencrypt/acme.json
-      httpChallenge:
-        entryPoint: web
+      tlsChallenge: true
 EOF
+fi
 
-  mkdir -p ./letsencrypt
-  touch ./letsencrypt/acme.json
-  chmod 600 ./letsencrypt/acme.json
+# Remove Traefik antigo se existir
+docker rm -f "$TRAEFIK_CONTAINER" 2>/dev/null || true
 
-  echo "Gerando docker-compose.yml inicial do Traefik..."
-  cat <<EOF > docker-compose.yml
-version: "3"
+echo "🚀 Subindo Traefik..."
+docker run -d \
+  --name "$TRAEFIK_CONTAINER" \
+  --restart=always \
+  -p 80:80 \
+  -p 443:443 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v "$TRAEFIK_DIR/letsencrypt:/letsencrypt" \
+  -v "$TRAEFIK_DIR/traefik.yml:/etc/traefik/traefik.yml" \
+  --network "$NETWORK_NAME" \
+  traefik:v2.11
 
-services:
-  traefik:
-    image: traefik:v2.10
-    container_name: traefik
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik.yml:/traefik.yml
-      - ./letsencrypt:/letsencrypt
-EOF
+# ===== INSTALAR PORTAINER =====
+docker rm -f "$PORTAINER_CONTAINER" 2>/dev/null || true
+docker volume create "$PORTAINER_VOLUME" || true
 
-  docker compose up -d traefik
+echo "🚀 Subindo Portainer..."
+if [[ "$USE_TLS" == true ]]; then
+  docker run -d \
+    --name "$PORTAINER_CONTAINER" \
+    --restart=always \
+    --network "$NETWORK_NAME" \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$PORTAINER_VOLUME:/data" \
+    -l "traefik.enable=true" \
+    -l "traefik.http.routers.portainer.rule=Host(\`$DOMAIN\`)" \
+    -l "traefik.http.routers.portainer.entrypoints=websecure" \
+    -l "traefik.http.routers.portainer.tls.certresolver=letsencrypt" \
+    -l "traefik.http.services.portainer.loadbalancer.server.port=$UI_PORT" \
+    portainer/portainer-ce:latest
+else
+  docker run -d \
+    --name "$PORTAINER_CONTAINER" \
+    --restart=always \
+    -p "$LEGACY_PORT:9000" \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$PORTAINER_VOLUME:/data" \
+    portainer/portainer-ce:latest
+fi
 
-  banner
-  echo "✅ Traefik instalado e configurado com SSL automático."
-}
-
-# Instala o Portainer
-function install_portainer() {
-  read -p "Informe o domínio para o Portainer (ex: portainer.seudominio.com): " DOMAIN
-
-  check_domain_dns "$DOMAIN"
-
-  cd ~/sPadamen-Dev
-
-  echo "Adicionando serviço Portainer ao docker-compose.yml..."
-  cat <<EOF >> docker-compose.yml
-
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    restart: always
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.portainer.rule=Host(\`$DOMAIN\`)"
-      - "traefik.http.routers.portainer.entrypoints=websecure"
-      - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
-      - "traefik.http.services.portainer.loadbalancer.server.port=9443"
-
-volumes:
-  portainer_data:
-EOF
-
-  docker compose up -d portainer
-
-  banner
-  echo "✅ Portainer instalado!"
-  echo "🌐 Acesse via: https://$DOMAIN"
-}
-
-# Logs do Traefik
-function logs_traefik() {
-  docker logs -f traefik
-}
-
-# Logs do Portainer
-function logs_portainer() {
-  docker logs -f portainer
-}
-
-# Relatório final dos containers
-function status_report() {
-  banner
-  echo "🚀 Status atual dos containers Docker:"
-  echo
-  docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
-  echo
-  echo "✅ Todos os serviços rodando. Use as opções de logs para monitorar."
-}
-
-# Menu CLI
-function show_menu() {
-  banner
-  echo "1) Instalar Traefik (SSL + proxy)"
-  echo "2) Instalar Portainer com domínio personalizado"
-  echo "3) Ver logs do Traefik"
-  echo "4) Ver logs do Portainer"
-  echo "5) Ver relatório de status dos containers"
-  echo "6) Sair"
-  echo
-}
-
-# Execução principal
-install_dependencies
-
-while true; do
-  show_menu
-  read -p "Escolha uma opção: " OPTION
-  case $OPTION in
-    1) install_traefik ;;
-    2) install_portainer ;;
-    3) logs_traefik ;;
-    4) logs_portainer ;;
-    5) status_report ;;
-    6) echo "👋 Saindo..."; exit 0 ;;
-    *) echo "Opção inválida." ;;
-  esac
-done
+# ===== FINAL =====
+echo ""
+echo "✅ Portainer instalado com sucesso!"
+if [[ "$USE_TLS" == true ]]; then
+  echo "🌐 Acesse: https://$DOMAIN"
+else
+  echo "🌐 Acesse: http://localhost:9000"
+fi
+echo "ℹ️  Dashboard Traefik (se habilitado): http://localhost:8080/dashboard/"
 
